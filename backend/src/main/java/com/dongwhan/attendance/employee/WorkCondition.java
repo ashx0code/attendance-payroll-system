@@ -68,6 +68,13 @@ public class WorkCondition {
         MinimumWage.validate(toPayPolicy(false), validationYear);
     }
 
+    /**
+     * 주휴일 여부. 주휴일은 일요일로 보며, 일요일이 소정근로일이면 주휴일이 아니다.
+     */
+    public boolean isWeeklyHoliday(DayOfWeek day) {
+        return day == DayOfWeek.SUNDAY && !scheduledDays.contains(day);
+    }
+
     public PayPolicy toPayPolicy(boolean smallBusiness) {
         return new PayPolicy(
                 wageType,
