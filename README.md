@@ -53,9 +53,23 @@ frontend/   SvelteKit 웹 클라이언트
 | GET | `/api/employees?includeInactive=false` | 직원 목록 |
 | GET / PUT | `/api/employees/{id}` | 직원 조회·수정 |
 | DELETE | `/api/employees/{id}` | 퇴사 처리 (급여 내역 보존을 위해 실제 삭제하지 않음) |
+| POST | `/api/employees/{id}/attendance/clock-in` | 출근 |
+| POST | `/api/employees/{id}/attendance/break-start` | 휴게 시작 |
+| POST | `/api/employees/{id}/attendance/break-end` | 휴게 종료 |
+| POST | `/api/employees/{id}/attendance/clock-out` | 퇴근 |
+| GET | `/api/employees/{id}/attendance/today` | 오늘의 근무 현황 (진행 중 근무, 근로시간, 휴일 여부) |
 
 직원 등록·수정 시 통상시급이 최저임금(2026년 10,320원)보다 낮으면 거부합니다.
 월급제는 월 기본급 ÷ 월 소정근로시간으로 비교합니다.
+
+### 출퇴근 기록 규칙
+
+- 기록 시각은 클라이언트가 보낸 값이 아니라 **서버 시각**(Asia/Seoul, 초 단위)을 씁니다.
+- 상태는 `근무 중 ↔ 휴게 중 → 퇴근` 순서로만 바뀌며, 맞지 않는 요청은 `409 Conflict`로 거부합니다.
+  휴게 중에 퇴근하면 퇴근 시각에 휴게가 끝난 것으로 봅니다.
+- 직원·근무일마다 기록은 하나입니다. 출근 버튼을 동시에 여러 번 눌러도 **DB 유니크 제약**으로 하나만 저장되고,
+  휴게·퇴근 요청이 겹치면 **낙관적 락**(`@Version`)으로 나중 요청을 거부합니다.
+- 휴일 근무는 현재 **주휴일(일요일)** 기준으로 표시합니다. 일요일이 소정근로일인 직원은 제외합니다.
 
 ## 실행 방법
 
@@ -75,7 +89,7 @@ npm run dev
 - [x] 급여 계산 엔진 (주휴·연장·야간·휴일 수당, 4대 보험, 3.3% 원천징수)
 - [ ] 근로소득 간이세액표 기반 소득세 계산
 - [x] 사업장·직원·근로조건 관리 API (최저임금 검증 포함)
-- [ ] 출근·퇴근·휴게 기록 API
+- [x] 출근·퇴근·휴게 기록 API (중복 출근 방지)
 - [ ] 월간 근태 달력
 - [ ] 출퇴근 기록 정정 요청 및 승인 워크플로
 - [ ] 월 급여 정산·확정
