@@ -115,20 +115,32 @@ class AttendanceApiTest {
     }
 
     @Test
-    @DisplayName("같은 날 두 번 출근할 수 없다")
-    void duplicateClockIn() throws Exception {
+    @DisplayName("퇴근하기 전에는 다시 출근할 수 없다")
+    void clockInWhileWorking() throws Exception {
         action("clock-in").andExpect(status().isOk());
         at(9, 1);
         action("clock-in")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail", containsString("퇴근하지 않은 근무")));
+    }
 
-        at(18, 0);
+    @Test
+    @DisplayName("퇴근한 뒤 같은 날 다시 출근할 수 있다 (분할 근무)")
+    void splitShift() throws Exception {
+        action("clock-in");
+        at(12, 0);
         action("clock-out");
-        at(19, 0);
+        at(17, 0);
         action("clock-in")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail", containsString("이미 출근 기록")));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.workDate").value("2026-11-02"));
+
+        at(19, 30);
+        mockMvc.perform(get(employeeUrl + "/attendance/today"))
+                .andExpect(jsonPath("$.current.status").value("WORKING"))
+                .andExpect(jsonPath("$.attendances", hasSize(2)))
+                .andExpect(jsonPath("$.attendances[0].status").value("DONE"))
+                .andExpect(jsonPath("$.workedMinutes").value(3 * 60 + 2 * 60 + 30));
     }
 
     @Test
@@ -168,8 +180,9 @@ class AttendanceApiTest {
         mockMvc.perform(get(employeeUrl + "/attendance/today"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.date").value("2026-11-03"))
-                .andExpect(jsonPath("$.attendance.workDate").value("2026-11-02"))
-                .andExpect(jsonPath("$.attendance.workedMinutes").value(4 * 60));
+                .andExpect(jsonPath("$.current.workDate").value("2026-11-02"))
+                .andExpect(jsonPath("$.current.workedMinutes").value(4 * 60))
+                .andExpect(jsonPath("$.attendances", hasSize(0)));
 
         CLOCK.set(LocalDateTime.of(2026, 11, 3, 6, 0));
         action("clock-out")
@@ -184,7 +197,9 @@ class AttendanceApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.date").value("2026-11-02"))
                 .andExpect(jsonPath("$.holiday").value(false))
-                .andExpect(jsonPath("$.attendance").isEmpty());
+                .andExpect(jsonPath("$.current").isEmpty())
+                .andExpect(jsonPath("$.attendances", hasSize(0)))
+                .andExpect(jsonPath("$.workedMinutes").value(0));
     }
 
     @Test
@@ -242,6 +257,31 @@ class AttendanceApiTest {
         assertThat(statement.workSummary().workedMinutes()).isEqualTo(16 * 60);
         assertThat(statement.workSummary().nightMinutes()).isEqualTo(8 * 60);
         assertThat(statement.find(PayItemType.NIGHT_PAY)).isPresent();
+    }
+
+    @Test
+    @DisplayName("분할 근무는 하루 근로시간으로 합산해 8시간 초과분을 연장근로로 계산한다")
+    void splitShiftPayroll() throws Exception {
+        // 월요일 09:00 ~ 13:00, 18:00 ~ 23:00 → 하루 9시간 (연장 1시간, 야간 1시간)
+        action("clock-in");
+        at(13, 0);
+        action("clock-out");
+        at(18, 0);
+        action("clock-in");
+        at(23, 0);
+        action("clock-out");
+
+        List<WorkRecord> records = attendanceService.workRecords(
+                employeeId, LocalDate.of(2026, 11, 2), LocalDate.of(2026, 11, 2));
+        assertThat(records).hasSize(2);
+
+        var policy = employeeRepository.findById(employeeId).orElseThrow().getWorkCondition().toPayPolicy(false);
+        PayStatement statement = new PayrollCalculator().calculate(policy, records, YearMonth.of(2026, 11));
+
+        assertThat(statement.workSummary().workDays()).isEqualTo(1);
+        assertThat(statement.workSummary().workedMinutes()).isEqualTo(9 * 60);
+        assertThat(statement.workSummary().overtimeMinutes()).isEqualTo(60);
+        assertThat(statement.workSummary().nightMinutes()).isEqualTo(60);
     }
 
     private void at(int hour, int minute) {

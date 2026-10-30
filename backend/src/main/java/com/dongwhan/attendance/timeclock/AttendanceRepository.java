@@ -9,9 +9,7 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
     Optional<Attendance> findFirstByEmployeeIdAndStatusNotOrderByClockInAtDesc(Long employeeId, AttendanceStatus status);
 
-    Optional<Attendance> findByEmployeeIdAndWorkDate(Long employeeId, LocalDate workDate);
-
-    boolean existsByEmployeeIdAndWorkDate(Long employeeId, LocalDate workDate);
+    List<Attendance> findByEmployeeIdAndWorkDateOrderByClockInAtAsc(Long employeeId, LocalDate workDate);
 
     List<Attendance> findByEmployeeIdAndStatusAndWorkDateBetweenOrderByWorkDateAsc(
             Long employeeId, AttendanceStatus status, LocalDate from, LocalDate to);
