@@ -29,14 +29,15 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 하루치 출퇴근 기록.
+ * 출근부터 퇴근까지 한 번의 근무 기록. 하루에 여러 번 출근(분할 근무)할 수 있다.
  *
- * <p>직원·근무일마다 하나만 저장되도록 유니크 제약을 두어, 출근 버튼을 여러 번 눌러도 기록이 하나만 남게 한다.
+ * <p>진행 중인 근무는 직원마다 하나만 있도록 {@code (employee_id, open_marker)}에 유니크 제약을 두어,
+ * 출근 버튼을 동시에 여러 번 눌러도 기록이 하나만 남게 한다.
  * 휴게·퇴근처럼 같은 기록을 고치는 요청이 동시에 들어오면 {@link Version}으로 나중 요청을 거부한다.
  */
 @Entity
 @Table(uniqueConstraints = @UniqueConstraint(
-        name = "uk_attendance_employee_work_date", columnNames = {"employee_id", "work_date"}))
+        name = "uk_attendance_employee_open", columnNames = {"employee_id", "open_marker"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Attendance {
@@ -50,7 +51,7 @@ public class Attendance {
     private Employee employee;
 
     /** 근무일(출근일 기준). 자정을 넘겨 퇴근해도 출근일의 근무로 본다. */
-    @Column(name = "work_date", nullable = false)
+    @Column(nullable = false)
     private LocalDate workDate;
 
     @Enumerated(EnumType.STRING)
@@ -61,6 +62,13 @@ public class Attendance {
     private LocalDateTime clockInAt;
 
     private LocalDateTime clockOutAt;
+
+    /**
+     * 퇴근 전에는 TRUE, 퇴근하면 NULL. 유니크 제약에서 NULL끼리는 겹쳐도 되므로
+     * 퇴근한 기록은 여러 개, 진행 중인 기록은 하나만 허용된다.
+     */
+    @Column(name = "open_marker")
+    private Boolean openMarker = Boolean.TRUE;
 
     @ElementCollection
     @CollectionTable(name = "attendance_break", joinColumns = @JoinColumn(name = "attendance_id"))
@@ -112,6 +120,7 @@ public class Attendance {
             closeOpenBreak(at);
         }
         clockOutAt = at;
+        openMarker = null;
         status = AttendanceStatus.DONE;
     }
 

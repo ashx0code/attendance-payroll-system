@@ -10,6 +10,7 @@ import com.dongwhan.attendance.employee.WorkCondition;
 import com.dongwhan.attendance.payroll.domain.WageType;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -81,7 +82,21 @@ class AttendanceConcurrencyTest {
 
         assertThat(failures).hasSize(THREADS - 1)
                 .allMatch(e -> e instanceof ConflictException || e instanceof OptimisticLockingFailureException);
-        assertThat(attendanceService.today(employeeId).attendance().breaks()).hasSize(1);
+        assertThat(attendanceService.today(employeeId).current().breaks()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("퇴근 후 재출근 요청이 동시에 여러 번 들어와도 진행 중인 근무는 하나만 생긴다")
+    void concurrentClockInAfterClockOut() throws Exception {
+        Employee employee = employeeRepository.findById(employeeId).orElseThrow();
+        Attendance done = new Attendance(employee, LocalDateTime.now().minusHours(3), false);
+        done.clockOut(LocalDateTime.now().minusHours(1));
+        attendanceRepository.save(done);
+
+        List<Throwable> failures = runConcurrently(() -> attendanceService.clockIn(employeeId));
+
+        assertThat(failures).hasSize(THREADS - 1).allMatch(e -> e instanceof ConflictException);
+        assertThat(attendanceRepository.count()).isEqualTo(2);
     }
 
     /** 같은 작업을 동시에 실행하고 실패한 예외를 모은다. */

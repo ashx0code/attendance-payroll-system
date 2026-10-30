@@ -31,19 +31,16 @@ public class AttendanceService {
             throw new AttendanceStateException("퇴사 처리된 직원은 출근할 수 없습니다.");
         }
         if (attendanceRepository.findOpen(employeeId).isPresent()) {
-            throw new AttendanceStateException("아직 퇴근하지 않은 근무가 있습니다.");
+            throw notClockedOut();
         }
         LocalDateTime now = now();
-        if (attendanceRepository.existsByEmployeeIdAndWorkDate(employeeId, now.toLocalDate())) {
-            throw alreadyClockedIn();
-        }
         boolean holiday = isHoliday(employee, now.toLocalDate());
         try {
             Attendance attendance = attendanceRepository.saveAndFlush(new Attendance(employee, now, holiday));
             return AttendanceResponse.from(attendance, now);
         } catch (DataIntegrityViolationException e) {
             // 동시에 들어온 다른 출근 요청이 먼저 저장된 경우
-            throw alreadyClockedIn();
+            throw notClockedOut();
         }
     }
 
@@ -66,11 +63,15 @@ public class AttendanceService {
         Employee employee = findEmployee(employeeId);
         LocalDateTime now = now();
         LocalDate today = now.toLocalDate();
-        AttendanceResponse attendance = attendanceRepository.findOpen(employeeId)
-                .or(() -> attendanceRepository.findByEmployeeIdAndWorkDate(employeeId, today))
+        AttendanceResponse current = attendanceRepository.findOpen(employeeId)
                 .map(a -> AttendanceResponse.from(a, now))
                 .orElse(null);
-        return new TodayResponse(today, isHoliday(employee, today), attendance);
+        List<AttendanceResponse> attendances = attendanceRepository
+                .findByEmployeeIdAndWorkDateOrderByClockInAtAsc(employeeId, today)
+                .stream()
+                .map(a -> AttendanceResponse.from(a, now))
+                .toList();
+        return TodayResponse.of(today, isHoliday(employee, today), current, attendances);
     }
 
     /**
@@ -108,7 +109,7 @@ public class AttendanceService {
         return LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
     }
 
-    private static AttendanceStateException alreadyClockedIn() {
-        return new AttendanceStateException("오늘은 이미 출근 기록이 있습니다.");
+    private static AttendanceStateException notClockedOut() {
+        return new AttendanceStateException("아직 퇴근하지 않은 근무가 있습니다.");
     }
 }
